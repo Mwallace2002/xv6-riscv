@@ -21,8 +21,8 @@ sys_getpid(void)
 {
   return myproc()->pid;
 }
-uint64
 
+uint64
 sys_getppid(void)
 {
   struct proc *p = myproc();
@@ -30,6 +30,28 @@ sys_getppid(void)
     return p->parent->pid;
   return -1;
 }
+
+uint64
+sys_getancestor(void)
+{
+  int n;
+  argint(0, &n);          // ← en este xv6, argint no retorna valor
+  if (n < 0)
+    return -1;
+
+  struct proc *p = myproc();
+
+  while (n > 0 && p != 0) {
+    p = p->parent;
+    n--;
+  }
+
+  if (p == 0)
+    return -1;
+
+  return p->pid;
+}
+
 
 uint64
 sys_fork(void)
@@ -61,9 +83,7 @@ sys_sbrk(void)
       return -1;
     }
   } else {
-    // Lazily allocate memory for this process: increase its memory
-    // size but don't allocate memory. If the processes uses the
-    // memory, vmfault() will allocate it.
+    // Asignación perezosa: solo aumenta el tamaño, la memoria real se asigna en vmfault()
     if(addr + n < addr)
       return -1;
     myproc()->sz += n;
@@ -102,8 +122,7 @@ sys_kill(void)
   return kkill(pid);
 }
 
-// return how many clock tick interrupts have occurred
-// since start.
+// return how many clock tick interrupts have occurred since start.
 uint64
 sys_uptime(void)
 {
