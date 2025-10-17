@@ -104,4 +104,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+ 
+  // Campo tickets para cada proceso
+  int tickets;                 // Numero de tickets
+  int cpu_slices;              // Numero de veces que el proceso ha sido programado
+
 };
+

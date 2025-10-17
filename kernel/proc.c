@@ -125,6 +125,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  //Inicializar tickets y slices
+  p->tickets = 100; // Valor por defecto para nuevos procesos
+  p->cpu_slices = 0; // Se inicializa en 0 
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
