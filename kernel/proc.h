@@ -106,8 +106,9 @@ struct proc {
   char name[16];               // Process name (debugging)
  
   // Campo tickets para cada proceso
-  int tickets;                 // Numero de tickets
-  int cpu_slices;              // Numero de veces que el proceso ha sido programado
+  int tickets;            // cantidad de tickets del proceso
+  uint64 run_slices;      // cuántas veces fue elegido por scheduler
+  uint64 cpu_slices;      // "ticks" de CPU consumidos mientras RUNNING
 
 };
 

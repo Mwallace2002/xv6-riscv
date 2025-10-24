@@ -105,3 +105,19 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// NUEVA SYSCALL: settickets
+uint64
+sys_settickets(void)
+{
+  int n;
+  argint(0, &n);  // solo asigna el argumento
+
+  struct proc *p = myproc();  // proceso actual
+  if(n < 1)
+    p->tickets = 1;           // mínimo 1 ticket
+  else
+    p->tickets = n;
+
+  return 0; // éxito
+}

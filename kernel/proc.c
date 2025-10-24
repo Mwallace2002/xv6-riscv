@@ -26,6 +26,13 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+// RNG muy simple para la lotería
+static uint64 randstate = 88172645463393265ULL;
+static inline uint64 krand(void) {
+  randstate = randstate * 6364136223846793005ULL + 1;
+  return randstate >> 32;
+}
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -125,9 +132,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  //Inicializar tickets y slices
-  p->tickets = 100; // Valor por defecto para nuevos procesos
-  p->cpu_slices = 0; // Se inicializa en 0 
+  // Inicializar tickets y contadores
+  p->tickets = 100;     // Valor por defecto para todos los procesos
+  p->run_slices = 0;    // Veces que ha sido elegido por el scheduler
+  p->cpu_slices = 0;    // Ticks de CPU acumulados
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -387,19 +395,25 @@ kwait(uint64 addr)
 
         havekids = 1;
         if(pp->state == ZOMBIE){
-          // Found one.
-          pid = pp->pid;
-          if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
-                                  sizeof(pp->xstate)) < 0) {
-            release(&pp->lock);
-            release(&wait_lock);
-            return -1;
-          }
-          freeproc(pp);
-          release(&pp->lock);
-          release(&wait_lock);
-          return pid;
-        }
+  // Found one.
+  pid = pp->pid;
+
+  // 🔹 Imprimir estadísticas del hijo
+  printf("exit pid=%d name=%s tickets=%d runs=%lu cpu_ticks=%lu\n",
+         pp->pid, pp->name, pp->tickets,
+         pp->run_slices, pp->cpu_slices);
+
+  if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
+                          sizeof(pp->xstate)) < 0) {
+    release(&pp->lock);
+    release(&wait_lock);
+    return -1;
+  }
+  freeproc(pp);   // <- después de loggear ya lo liberamos
+  release(&pp->lock);
+  release(&wait_lock);
+  return pid;
+}
         release(&pp->lock);
       }
     }
@@ -427,41 +441,58 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
   c->proc = 0;
-  for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
-    intr_on();
-    intr_off();
 
-    int found = 0;
+  for(;;){
+    intr_on();   // habilitar interrupciones
+
+    int total = 0;
+
+    // 1. Calcular la suma de tickets
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+        total += p->tickets;
       }
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      asm volatile("wfi");
+
+    if(total == 0) {
+      asm volatile("wfi"); // no hay procesos, esperar interrupción
+      continue;
+    }
+
+    // 2. Generar número aleatorio entre 1 y total
+    int r = (krand() % total) + 1;
+
+    // 3. Recorrer procesos acumulando
+    int acc = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        acc += p->tickets;
+        if(acc >= r) {
+          // 4. Elegir el proceso
+          p->state = RUNNING;
+          c->proc = p;
+
+          // Contabilidad
+          p->run_slices++;
+
+          swtch(&c->context, &p->context);
+
+          // al volver, el proceso ya no corre
+          c->proc = 0;
+          release(&p->lock);
+          break;
+        }
+      }
+      release(&p->lock);
     }
   }
 }
+
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores

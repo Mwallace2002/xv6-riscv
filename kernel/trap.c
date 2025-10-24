@@ -81,17 +81,22 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
-
-  prepare_return();
-
-  // the user page table to switch to, for trampoline.S
-  uint64 satp = MAKE_SATP(p->pagetable);
-
-  // return to trampoline.S; satp value in a0.
-  return satp;
+if(which_dev == 2){
+  if(p && p->state == RUNNING){
+    p->cpu_slices++;   // sumar tick de CPU al proceso actual
+  }
+  yield();
 }
+
+prepare_return();
+
+// the user page table to switch to, for trampoline.S
+uint64 satp = MAKE_SATP(p->pagetable);
+
+// return to trampoline.S; satp value in a0.
+return satp;
+}
+
 
 //
 // set up trapframe and control registers for a return to user space
@@ -152,8 +157,14 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0)
+  if(which_dev == 2 && myproc() != 0){
+    struct proc *p = myproc();
+    if(p->state == RUNNING){
+      p->cpu_slices++;   // contar 1 tick de CPU usado
+    }
     yield();
+}
+
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
@@ -167,15 +178,22 @@ clockintr()
   if(cpuid() == 0){
     acquire(&tickslock);
     ticks++;
+
+    // Contar CPU ticks del proceso actual
+    struct proc *p = myproc();
+    if(p != 0 && p->state == RUNNING) {
+      p->cpu_slices++;
+    }
+
     wakeup(&ticks);
     release(&tickslock);
   }
 
-  // ask for the next timer interrupt. this also clears
-  // the interrupt request. 1000000 is about a tenth
-  // of a second.
+  // pedir la próxima interrupción de timer (~0.1 seg)
   w_stimecmp(r_time() + 1000000);
 }
+
+
 
 // check if it's an external interrupt or software interrupt,
 // and handle it.
