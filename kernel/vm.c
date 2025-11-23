@@ -472,6 +472,7 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
   return mem;
 }
 
+
 int
 ismapped(pagetable_t pagetable, uint64 va)
 {
@@ -482,5 +483,58 @@ ismapped(pagetable_t pagetable, uint64 va)
   if (*pte & PTE_V){
     return 1;
   }
+  return 0;
+}
+
+
+// Implementación de mrdprotect
+int
+mrdprotect(uint64 addr, int len)
+{
+  struct proc *p = myproc();
+  pte_t *pte;
+  uint64 start_va, i;
+
+  if(len <= 0) return -1;
+  if(addr % PGSIZE != 0) return -1;
+
+  for(i = 0; i < len; i++){
+    start_va = addr + i * PGSIZE;
+
+    if(start_va >= MAXVA || start_va >= p->sz) return -1;
+
+    pte = walk(p->pagetable, start_va, 0);
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+      return -1;
+    *pte &= ~PTE_R;
+  }
+  
+  sfence_vma(); 
+  return 0;
+}
+
+// Implementación de munrdprotect
+int
+munrdprotect(uint64 addr, int len)
+{
+  struct proc *p = myproc();
+  pte_t *pte;
+  uint64 start_va, i;
+
+  if(len <= 0) return -1;
+  if(addr % PGSIZE != 0) return -1;
+
+  for(i = 0; i < len; i++){
+    start_va = addr + i * PGSIZE;
+    if(start_va >= MAXVA || start_va >= p->sz) return -1;
+
+    pte = walk(p->pagetable, start_va, 0);
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+      return -1;
+
+    *pte |= PTE_R;
+  }
+  
+  sfence_vma();
   return 0;
 }
